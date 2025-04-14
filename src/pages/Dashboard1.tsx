@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/lib/supabase'; // Update import
+import { signOut, onAuthStateChanged } from 'firebase/auth';
+import { auth, db } from '@/lib/firebase';
+// import { auth, db } from '@/lib/supabase';
+import { doc, getDoc } from 'firebase/firestore';
 import { 
   Bell, 
   Settings, 
@@ -28,23 +31,17 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import AdminManagementTab  from '@/components/AdminManagementTab';
-import SundaySchoolTab from '@/components/SundaySchoolTab';
+import SundaySchoolTab from '@/components/SundaySchoolTab'
+// import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// Updated User type based on profiles table
 interface User {
-  id: string;
-  role?: 'member' | 'ADMIN' | 'SUPER_ADMIN';
+  uid: string;
   email: string;
-  first_name?: string;
-  middle_name?: string;
-  last_name?: string;
-  profile_image_url?: string;
-  home_address?: string;
-  marital_status?: string;
-  created_at: string;
-  updated_at?: string;
-  phone_number?: string;
+  fullName?: string;
+  role?: string;
 }
+
+
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -52,88 +49,38 @@ const Dashboard = () => {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
-          // Get user profile from Supabase
-          const { data: profileData, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
 
-          if (error) {
-            console.error('Error fetching profile:', error);
-            return;
-          }
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDoc(userDocRef);
 
-          if (profileData) {
-            setUser({
-              id: profileData.id,
-              role: profileData.role,
-              email: profileData.email,
-              first_name: profileData.first_name,
-              middle_name: profileData.middle_name,
-              last_name: profileData.last_name,
-              profile_image_url: profileData.profile_image_url,
-              home_address: profileData.home_address,
-              marital_status: profileData.marital_status,
-              created_at: profileData.created_at,
-              updated_at: profileData.updated_at,
-              phone_number: profileData.phone_number
-            });
-          }
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setUser({
+            uid: currentUser.uid,
+            email: currentUser.email || '',
+            fullName: currentUser.displayName || '',
+            role: userData.role // Get the role from Firestore
+          });
         } else {
-          setUser(null);
-          navigate('/login');
+          console.log('No user data found in Firestore');
         }
+      } else {
+        setUser(null);
       }
-    );
+    });
 
-    // Initial check for existing session
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (profileData) setUser(profileData);
-      }
-    };
-
-    checkSession();
-
-    return () => {
-      authListener?.subscription?.unsubscribe();
-    };
-  }, [navigate]);
+    return () => unsubscribe(); // Cleanup listener on component unmount
+  }, []);
 
   const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Error signing out:', error);
-    } else {
+    try {
+      await signOut(auth);
       navigate('/login');
+    } catch (error) {
+      console.error('Error signing out:', error);
     }
-  };
-
-  // Get user display name
-  const getDisplayName = () => {
-    if (user?.first_name && user?.last_name) {
-      return `${user.first_name} ${user.last_name}`;
-    }
-    return user?.email || 'Anonymous';
-  };
-
-  // Get avatar initials
-  const getAvatarInitials = () => {
-    if (user?.first_name && user?.last_name) {
-      return `${user.first_name[0]}${user.last_name[0]}`;
-    }
-    return user?.email?.[0]?.toUpperCase() || 'AD';
   };
 
   // Mock data - replace with real data from Firebase
@@ -169,13 +116,9 @@ const Dashboard = () => {
             <DropdownMenu>
               <DropdownMenuTrigger className="flex items-center space-x-2">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={user?.profile_image_url || ''} />
-                  <AvatarFallback>{getAvatarInitials()}</AvatarFallback>
+                  <AvatarImage src="/api/placeholder/32/32" />
+                  <AvatarFallback>AD</AvatarFallback>
                 </Avatar>
-                <div className="hidden md:block text-sm">
-                  <p className="font-medium">{getDisplayName()}</p>
-                  <p className="text-xs text-muted-foreground">{user?.role}</p>
-                </div>
                 <ChevronDown className="h-4 w-4 text-gray-500" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

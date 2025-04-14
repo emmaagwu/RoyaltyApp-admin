@@ -1,15 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ref, uploadBytes, deleteObject, getDownloadURL } from 'firebase/storage';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  deleteDoc,
-  doc, 
-  query, 
-  orderBy 
-} from 'firebase/firestore';
-import { storage, db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Trash2, Upload, FileText } from 'lucide-react';
 import { format } from 'date-fns';
-import { toast } from '@/components/ui/use-toast';
+import { toast } from 'sonner';
 
 interface OutlineItem {
   id: string;
@@ -49,13 +39,14 @@ const SundaySchoolTab = () => {
 
   const fetchOutlines = async () => {
     try {
-      const q = query(collection(db, 'sundaySchoolOutlines'), orderBy('date', 'desc'));
-      const querySnapshot = await getDocs(q);
-      const outlinesList = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as OutlineItem[];
-      setOutlines(outlinesList);
+      const { data, error } = await supabase
+        .from('sundaySchoolOutlines')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      setOutlines(data || []);
     } catch (error) {
       console.error('Error fetching outlines:', error);
       toast({
@@ -69,7 +60,7 @@ const SundaySchoolTab = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      // Check file size (max 5MB for free tier)
+      // Check file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         toast({
           variant: "destructive",
@@ -103,19 +94,31 @@ const SundaySchoolTab = () => {
 
     setIsUploading(true);
     try {
-      // Upload file to Firebase Storage
-      const storageRef = ref(storage, `sunday-school/${Date.now()}-${selectedFile.name}`);
-      await uploadBytes(storageRef, selectedFile);
-      const fileUrl = await getDownloadURL(storageRef);
+      // Upload file to Supabase Storage
+      const fileName = `${Date.now()}-${selectedFile.name}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('sunday-school')
+        .upload(fileName, selectedFile);
 
-      // Save metadata to Firestore
-      await addDoc(collection(db, 'sundaySchoolOutlines'), {
-        title,
-        date: format(selectedDate, 'yyyy-MM-dd'),
-        fileName: selectedFile.name,
-        fileUrl,
-        uploadedAt: new Date().toISOString()
-      });
+      if (uploadError) throw uploadError;
+
+      // Get public URL for the uploaded file
+      const { data: { publicUrl } } = supabase.storage
+        .from('sunday-school')
+        .getPublicUrl(fileName);
+
+      // Save metadata to Supabase
+      const { error: insertError } = await supabase
+        .from('sundaySchoolOutlines')
+        .insert({
+          title,
+          date: format(selectedDate, 'yyyy-MM-dd'),
+          fileName: selectedFile.name,
+          fileUrl: publicUrl,
+          uploadedAt: new Date().toISOString()
+        });
+
+      if (insertError) throw insertError;
 
       // Reset form
       setTitle('');
@@ -143,12 +146,24 @@ const SundaySchoolTab = () => {
 
   const handleDelete = async (outline: OutlineItem) => {
     try {
-      // Delete file from Storage
-      const storageRef = ref(storage, outline.fileUrl);
-      await deleteObject(storageRef);
+      // Extract the file path from the URL
+      const filePathMatch = outline.fileUrl.match(/sunday-school\/(.+)$/);
+      if (!filePathMatch) throw new Error('Invalid file URL');
 
-      // Delete metadata from Firestore
-      await deleteDoc(doc(db, 'sundaySchoolOutlines', outline.id));
+      // Delete file from Storage
+      const { error: deleteStorageError } = await supabase.storage
+        .from('sunday-school')
+        .remove([filePathMatch[1]]);
+
+      if (deleteStorageError) throw deleteStorageError;
+
+      // Delete metadata from Supabase
+      const { error: deleteRecordError } = await supabase
+        .from('sundaySchoolOutlines')
+        .delete()
+        .eq('id', outline.id);
+
+      if (deleteRecordError) throw deleteRecordError;
 
       // Refresh outlines list
       await fetchOutlines();

@@ -1,39 +1,25 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/lib/supabase'; // Update your supabase client import
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+// import { auth, db } from '@/lib/supabase';
+import { auth, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-  const LoginPage = () => {
+const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Check admin access in Supabase profiles table
+  // Check if user has admin access in Firestore
   const checkAdminAccess = async (userId: string) => {
-    // Destructure and rename error for clarity
-    const { data, error: queryError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', userId)
-      .single();
-
-    // Handle query errors
-    if (queryError) {
-      console.error('Role check error:', queryError);
-      return false;
-    }
-
-    // Handle missing data case
-    if (!data) {
-      console.warn('No profile found for user:', userId);
-      return false;
-    }
-
-    return ['ADMIN', 'SUPER_ADMIN'].includes(data.role);
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    const userData = userDoc.data();
+    return userData?.role === 'ADMIN' || userData?.role === 'SUPER_ADMIN';
   };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
@@ -42,34 +28,18 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
     setError('');
     
     try {
-      // Supabase email/password login
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) {
-        setError(error.message);
-        return;
-      }
-
-      if (!data.user) {
-        setError('No user found');
-        return;
-      }
-
-      const hasAdminAccess = await checkAdminAccess(data.user.id);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const hasAdminAccess = await checkAdminAccess(userCredential.user.uid);
       
       if (!hasAdminAccess) {
-        await supabase.auth.signOut();
+        await auth.signOut();
         setError('You do not have admin access');
         return;
       }
       
       navigate('/');
     } catch (err) {
-      setError('Login failed');
-      console.log(err);
+      setError('Invalid login credentials');
     } finally {
       setIsLoading(false);
     }
@@ -80,31 +50,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
     setError('');
     
     try {
-      // Supabase Google OAuth
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin // Update if using different redirect
-        }
-      });
-
-      if (error) {
-        setError(error.message);
-        return;
-      }
-
-      // For OAuth, we need to get the session after redirect
-      const { data: sessionData } = await supabase.auth.getSession();
-
-      if (!sessionData.session?.user) {
-        setError('Google login failed');
-        return;
-      }
-
-      const hasAdminAccess = await checkAdminAccess(sessionData.session.user.id);
+      const provider = new GoogleAuthProvider();
+      const userCredential = await signInWithPopup(auth, provider);
+      const hasAdminAccess = await checkAdminAccess(userCredential.user.uid);
       
       if (!hasAdminAccess) {
-        await supabase.auth.signOut();
+        await auth.signOut();
         setError('You do not have admin access');
         return;
       }
@@ -112,13 +63,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
       navigate('/');
     } catch (err) {
       setError('Google sign-in failed');
-      console.log(err);
     } finally {
       setIsLoading(false);
     }
   };
-
-  // ... rest of your component (JSX remains similar)
 
   return (
     <div className="min-h-screen flex bg-gray-50">
