@@ -38,7 +38,7 @@ const supabaseAnonKey =
 // For Web: Use localStorage instead of AsyncStorage
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: typeof window !== "undefined" ? localStorage : AsyncStorage, // Use AsyncStorage for React Native
+    storage: typeof window !== "undefined" ? localStorage : undefined, // Use AsyncStorage for React Native
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true, // Set this to true for web

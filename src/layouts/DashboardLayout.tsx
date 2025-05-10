@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext'
 
 // Updated User type based on profiles table
 // interface User {
@@ -42,87 +43,21 @@ import { Badge } from '@/components/ui/badge';
 // }
 
 const DashboardLayout = () => {
+  const { user, signOut } = useAuth(); 
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
-          // Get user profile from Supabase
-          const { data: profileData, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-
-          if (error) {
-            console.error('Error fetching profile:', error);
-            return;
-          }
-
-          if (profileData) {
-            setUser({
-              id: profileData.id,
-              role: profileData.role,
-              email: profileData.email,
-              first_name: profileData.first_name,
-              middle_name: profileData.middle_name,
-              last_name: profileData.last_name,
-              profile_image_url: profileData.profile_image_url,
-              home_address: profileData.home_address,
-              marital_status: profileData.marital_status,
-              created_at: profileData.created_at,
-              updated_at: profileData.updated_at,
-              phone_number: profileData.phone_number
-            });
-          }
-        } else {
-          setUser(null);
-          navigate('/login');
-        }
-      }
-    );
-
-    // Initial check for existing session
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (profileData) setUser(profileData);
-      }
-    };
-
-    checkSession();
-
-    return () => {
-      authListener?.subscription?.unsubscribe();
-    };
-  }, [navigate]);
 
   const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Error signing out:', error);
-    } else {
-      navigate('/login');
-    }
-  };
+    await signOut(); 
+  };  
 
-  // Get user display name
   const getDisplayName = () => {
     if (user?.first_name && user?.last_name) {
       return `${user.first_name} ${user.last_name}`;
     }
     return user?.email || 'Anonymous';
   };
+ 
 
-  // Get avatar initials
   const getAvatarInitials = () => {
     if (user?.first_name && user?.last_name) {
       return `${user.first_name[0]}${user.last_name[0]}`;
